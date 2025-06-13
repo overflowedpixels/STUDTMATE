@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:colorful_iconify_flutter/icons/logos.dart';
 import 'package:study_mate/credentials/signup.dart';
+import 'package:study_mate/firebaseservices/authService.dart';
 import 'package:study_mate/utilities/color_theme.dart';
 
 class Login extends StatelessWidget {
@@ -12,20 +13,6 @@ class Login extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextEditingController emailController = TextEditingController();
     final TextEditingController passwordController = TextEditingController();
-
-    void login() async {
-      print("object");
-      try {
-        final userCredential = await FirebaseAuth.instance
-            .signInWithEmailAndPassword(
-              email: emailController.text,
-              password: passwordController.text,
-            );
-        print(userCredential);
-      } catch (e) {
-        print("Unable to Login $e");
-      }
-    }
 
     return SafeArea(
       child: Scaffold(
@@ -87,7 +74,10 @@ class Login extends StatelessWidget {
                 GestureDetector(
                   onTap: () async {
                     print("Login button tapped");
-                    login();
+                    Authservice.login(
+                      emailController.text,
+                      passwordController.text,
+                    );
                   },
                   child: Container(
                     width: double.infinity,

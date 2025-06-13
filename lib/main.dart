@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:study_mate/credentials/login.dart';
 import 'package:study_mate/pages/Mainpage.dart';
 import 'package:study_mate/utilities/color_theme.dart';
 
@@ -33,7 +34,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Flutter Demo',
       theme: AppTheme.darkTheme,
-      home: Mainpage(),
+      home: Login(),
     );
   }
 }
