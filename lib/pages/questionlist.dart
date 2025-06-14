@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:myapp/color_theme.dart';
+import 'package:study_mate/utilities/color_theme.dart';
 
 // Enhanced Question Model with Replies
 class Question {
