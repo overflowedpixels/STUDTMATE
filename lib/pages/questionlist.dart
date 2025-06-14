@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:study_mate/utilities/color_theme.dart';
+import 'package:myapp/color_theme.dart';
 
-// Question Model
+// Enhanced Question Model with Replies
 class Question {
   final String id;
   final String title;
   final String postedBy;
   final String? image;
   final DateTime created;
-  final bool hasReplies;
+  final List<Reply> replies;
 
   Question({
     required this.id,
@@ -17,7 +17,7 @@ class Question {
     required this.postedBy,
     this.image,
     required this.created,
-    required this.hasReplies,
+    required this.replies,
   });
 
   factory Question.fromFirestore(DocumentSnapshot doc) {
@@ -28,7 +28,9 @@ class Question {
       postedBy: data['postedBy'] ?? '',
       image: data['image'],
       created: (data['created'] as Timestamp).toDate(),
-      hasReplies: data['hasReplies'] ?? false,
+      replies: (data['replies'] as List<dynamic>? ?? [])
+          .map((reply) => Reply.fromMap(reply))
+          .toList(),
     );
   }
 
@@ -38,12 +40,50 @@ class Question {
       'postedBy': postedBy,
       'image': image,
       'created': created,
-      'hasReplies': hasReplies,
+      'replies': replies.map((reply) => reply.toMap()).toList(),
+    };
+  }
+
+  bool get hasReplies => replies.isNotEmpty;
+}
+
+class Reply {
+  final String id;
+  final String content;
+  final String postedBy;
+  final DateTime created;
+  final bool isReported;
+
+  Reply({
+    required this.id,
+    required this.content,
+    required this.postedBy,
+    required this.created,
+    this.isReported = false,
+  });
+
+  factory Reply.fromMap(Map<String, dynamic> map) {
+    return Reply(
+      id: map['id'] ?? '',
+      content: map['content'] ?? '',
+      postedBy: map['postedBy'] ?? '',
+      created: (map['created'] as Timestamp).toDate(),
+      isReported: map['isReported'] ?? false,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'content': content,
+      'postedBy': postedBy,
+      'created': created,
+      'isReported': isReported,
     };
   }
 }
 
-// Question Service
+// Enhanced Question Service
 class QuestionService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -59,8 +99,45 @@ class QuestionService {
       'postedBy': postedBy,
       'image': imageUrl,
       'created': FieldValue.serverTimestamp(),
-      'hasReplies': false,
+      'replies': [],
     });
+  }
+
+  Future<void> addReply({
+    required String questionId,
+    required String content,
+    required String postedBy,
+  }) async {
+    final reply = Reply(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      content: content,
+      postedBy: postedBy,
+      created: DateTime.now(),
+    );
+
+    await _questionsRef.doc(questionId).update({
+      'replies': FieldValue.arrayUnion([reply.toMap()]),
+    });
+  }
+
+  Future<void> reportReply({
+    required String questionId,
+    required String replyId,
+  }) async {
+    final questionDoc = await _questionsRef.doc(questionId).get();
+    if (questionDoc.exists) {
+      final question = Question.fromFirestore(questionDoc);
+      final updatedReplies = question.replies.map((reply) {
+        if (reply.id == replyId) {
+          return reply..isReported = true;
+        }
+        return reply;
+      }).toList();
+
+      await _questionsRef.doc(questionId).update({
+        'replies': updatedReplies.map((reply) => reply.toMap()).toList(),
+      });
+    }
   }
 
   Stream<List<Question>> getQuestionsStream({int limit = 5}) {
@@ -85,9 +162,14 @@ class QuestionService {
 
     return snapshot.docs.map((doc) => Question.fromFirestore(doc)).toList();
   }
+
+  Future<Question?> getQuestion(String id) async {
+    final doc = await _questionsRef.doc(id).get();
+    return doc.exists ? Question.fromFirestore(doc) : null;
+  }
 }
 
-// Main Question List Page
+// Main Question List Page with Enhanced Features
 class QuestionListPage extends StatefulWidget {
   const QuestionListPage({super.key});
 
@@ -111,39 +193,53 @@ class _QuestionListPageState extends State<QuestionListPage> {
 
   Future<void> _loadInitialQuestions() async {
     setState(() => _isLoading = true);
-    final questions = await _questionService.getQuestionsStream(limit: _perPage).first;
-    if (questions.isNotEmpty) {
-      _lastVisible = await _questionService._questionsRef.doc(questions.last.id).get();
+    try {
+      final questions = await _questionService.getQuestionsStream(limit: _perPage).first;
+      if (questions.isNotEmpty) {
+        _lastVisible = await _questionService._questionsRef.doc(questions.last.id).get();
+      }
+      setState(() {
+        _questions.addAll(questions);
+        _isLoading = false;
+        _hasMore = questions.length == _perPage;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading questions: $e')),
+      );
     }
-    setState(() {
-      _questions.addAll(questions);
-      _isLoading = false;
-      _hasMore = questions.length == _perPage;
-    });
   }
 
   Future<void> _loadMoreQuestions() async {
     if (!_hasMore || _isLoading) return;
     
     setState(() => _isLoading = true);
-    final newQuestions = await _questionService.loadMoreQuestions(
-      lastVisible: _lastVisible!,
-      limit: _perPage,
-    );
-    
-    if (newQuestions.isNotEmpty) {
-      _lastVisible = await _questionService._questionsRef.doc(newQuestions.last.id).get();
+    try {
+      final newQuestions = await _questionService.loadMoreQuestions(
+        lastVisible: _lastVisible!,
+        limit: _perPage,
+      );
+      
+      if (newQuestions.isNotEmpty) {
+        _lastVisible = await _questionService._questionsRef.doc(newQuestions.last.id).get();
+      }
+      
+      setState(() {
+        _questions.addAll(newQuestions);
+        _isLoading = false;
+        _hasMore = newQuestions.length == _perPage;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading more questions: $e')),
+      );
     }
-    
-    setState(() {
-      _questions.addAll(newQuestions);
-      _isLoading = false;
-      _hasMore = newQuestions.length == _perPage;
-    });
   }
 
   String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
+    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
   }
 
   String _extractUsername(String email) {
@@ -157,14 +253,38 @@ class _QuestionListPageState extends State<QuestionListPage> {
     );
     
     if (result != null && result.isNotEmpty) {
-      const currentUserEmail = 'current.user@student.edu'; // Replace with actual user email
-      await _questionService.addQuestion(
-        title: result,
-        postedBy: currentUserEmail,
-      );
-      _questions.clear();
-      await _loadInitialQuestions();
+      // In a real app, get current user email from auth
+      const currentUserEmail = 'current.user@student.edu';
+      
+      try {
+        await _questionService.addQuestion(
+          title: result,
+          postedBy: currentUserEmail,
+        );
+        _questions.clear();
+        await _loadInitialQuestions();
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to post question: $e')),
+        );
+      }
     }
+  }
+
+  void _navigateToQuestionDetails(Question question) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => QuestionDetailsPage(
+          question: question,
+          questionService: _questionService,
+          onReplyAdded: () {
+            _questions.clear();
+            _loadInitialQuestions();
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -195,20 +315,20 @@ class _QuestionListPageState extends State<QuestionListPage> {
                 itemBuilder: (context, index) {
                   if (index < _questions.length) {
                     final question = _questions[index];
-                    return QuestionCard(
-                      title: question.title,
-                      created: _formatDate(question.created),
-                      image: question.image,
-                      postedBy: _extractUsername(question.postedBy),
-                      hasReplies: question.hasReplies,
-                      onReply: () {
-                        // Navigate to replies page
-                        print("Reply to: ${question.title}");
-                      },
-                      onReport: () {
-                        // Handle report
-                        print("Report: ${question.title}");
-                      },
+                    return GestureDetector(
+                      onTap: () => _navigateToQuestionDetails(question),
+                      child: QuestionCard(
+                        title: question.title,
+                        created: _formatDate(question.created),
+                        image: question.image,
+                        postedBy: _extractUsername(question.postedBy),
+                        hasReplies: question.hasReplies,
+                        onReply: () => _navigateToQuestionDetails(question),
+                        onReport: () {
+                          // Handle report for the question itself
+                          print("Report question: ${question.title}");
+                        },
+                      ),
                     );
                   } else {
                     return Center(
@@ -238,7 +358,333 @@ class _QuestionListPageState extends State<QuestionListPage> {
   }
 }
 
-// Question Card Widget
+// Question Details Page
+class QuestionDetailsPage extends StatefulWidget {
+  final Question question;
+  final QuestionService questionService;
+  final VoidCallback onReplyAdded;
+
+  const QuestionDetailsPage({
+    required this.question,
+    required this.questionService,
+    required this.onReplyAdded,
+    super.key,
+  });
+
+  @override
+  State<QuestionDetailsPage> createState() => _QuestionDetailsPageState();
+}
+
+class _QuestionDetailsPageState extends State<QuestionDetailsPage> {
+  late Question _question;
+  final TextEditingController _replyController = TextEditingController();
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _question = widget.question;
+    _loadQuestion();
+  }
+
+  Future<void> _loadQuestion() async {
+    final updatedQuestion = await widget.questionService.getQuestion(_question.id);
+    if (updatedQuestion != null) {
+      setState(() {
+        _question = updatedQuestion;
+      });
+    }
+  }
+
+  Future<void> _addReply() async {
+    if (_replyController.text.isEmpty) return;
+    
+    setState(() => _isSubmitting = true);
+    try {
+      // In a real app, get current user email from auth
+      const currentUserEmail = 'current.user@student.edu';
+      
+      await widget.questionService.addReply(
+        questionId: _question.id,
+        content: _replyController.text,
+        postedBy: currentUserEmail,
+      );
+      
+      _replyController.clear();
+      await _loadQuestion();
+      widget.onReplyAdded();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to post reply: $e')),
+      );
+    } finally {
+      setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _reportReply(String replyId) async {
+    try {
+      await widget.questionService.reportReply(
+        questionId: _question.id,
+        replyId: replyId,
+      );
+      await _loadQuestion();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reply reported successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to report reply: $e')),
+      );
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _extractUsername(String email) {
+    return email.split('@')[0];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: AppTheme.accentYellow),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          'Question Details',
+          style: TextStyle(color: AppTheme.accentYellow),
+        ),
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Question Card
+                  Card(
+                    color: AppTheme.card,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_question.image != null) ...[
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.network(
+                                _question.image!,
+                                width: double.infinity,
+                                height: 200,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    height: 200,
+                                    color: Colors.grey[800],
+                                    child: const Center(
+                                      child: Icon(Icons.image, size: 50, color: Colors.grey),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          Text(
+                            _question.title,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(Icons.person, size: 16, color: Colors.grey[400]),
+                              const SizedBox(width: 4),
+                              Text(
+                                _extractUsername(_question.postedBy),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[400],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Icon(Icons.access_time, size: 16, color: Colors.grey[400]),
+                              const SizedBox(width: 4),
+                              Text(
+                                _formatDate(_question.created),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[400],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Replies Section
+                  Text(
+                    'Replies (${_question.replies.length})',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  if (_question.replies.isEmpty)
+                    const Center(
+                      child: Text(
+                        'No replies yet. Be the first to reply!',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  else
+                    ..._question.replies.map((reply) => _buildReplyCard(reply)).toList(),
+                ],
+              ),
+            ),
+          ),
+          
+          // Reply Input Section
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.card,
+              border: Border(top: BorderSide(color: Colors.grey[700]!)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _replyController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Write a reply...',
+                      hintStyle: TextStyle(color: Colors.grey[400]),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[800],
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                    ),
+                    maxLines: 3,
+                    minLines: 1,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: _isSubmitting
+                      ? const CircularProgressIndicator()
+                      : const Icon(Icons.send, color: AppTheme.accentYellow),
+                  onPressed: _isSubmitting ? null : _addReply,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReplyCard(Reply reply) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: Colors.grey[900],
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _extractUsername(reply.postedBy),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                PopupMenuButton(
+                  icon: const Icon(Icons.more_vert, color: Colors.grey),
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      child: const Text('Report'),
+                      onTap: () => _reportReply(reply.id),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              reply.content,
+              style: const TextStyle(color: Colors.white),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _formatDate(reply.created),
+              style: TextStyle(
+                color: Colors.grey[400],
+                fontSize: 12,
+              ),
+            ),
+            if (reply.isReported)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.flag, size: 16, color: Colors.red),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Reported',
+                      style: TextStyle(
+                        color: Colors.red[300],
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Question Card Widget (updated)
 class QuestionCard extends StatelessWidget {
   final String title;
   final String created;
@@ -271,22 +717,22 @@ class QuestionCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (image != null) ...[
-              Container(
-                height: 150,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.grey[800],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.network(
-                    image!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Icon(Icons.image, size: 50, color: Colors.grey[600]);
-                    },
-                  ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.network(
+                  image!,
+                  width: double.infinity,
+                  height: 150,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      height: 150,
+                      color: Colors.grey[800],
+                      child: const Center(
+                        child: Icon(Icons.image, size: 50, color: Colors.grey),
+                      ),
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: 12),
@@ -306,17 +752,17 @@ class QuestionCard extends StatelessWidget {
             
             Row(
               children: [
-                Icon(Icons.access_time, size: 16, color: Colors.grey[400]),
-                const SizedBox(width: 4),
-                Text(
-                  created,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
-                ),
-                const SizedBox(width: 16),
                 Icon(Icons.person, size: 16, color: Colors.grey[400]),
                 const SizedBox(width: 4),
                 Text(
                   postedBy,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+                ),
+                const SizedBox(width: 16),
+                Icon(Icons.access_time, size: 16, color: Colors.grey[400]),
+                const SizedBox(width: 4),
+                Text(
+                  created,
                   style: TextStyle(fontSize: 12, color: Colors.grey[400]),
                 ),
               ],
@@ -384,7 +830,7 @@ class QuestionCard extends StatelessWidget {
   }
 }
 
-// Add Question Dialog
+// Add Question Dialog (updated)
 class AddQuestionDialog extends StatefulWidget {
   const AddQuestionDialog({super.key});
 
@@ -409,27 +855,34 @@ class _AddQuestionDialogState extends State<AddQuestionDialog> {
       title: const Text('Ask a Question', style: TextStyle(color: Colors.white)),
       content: Form(
         key: _formKey,
-        child: TextFormField(
-          controller: _questionController,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Enter your question...',
-            hintStyle: TextStyle(color: Colors.grey[400]),
-            border: const OutlineInputBorder(),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Colors.grey[700]!),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _questionController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Enter your question...',
+                hintStyle: TextStyle(color: Colors.grey[400]),
+                border: const OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey[700]!),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: AppTheme.accentYellow),
+                ),
+              ),
+              maxLines: 3,
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter a question';
+                }
+                return null;
+              },
             ),
-            focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.accentYellow),
-            ),
-          ),
-          maxLines: 3,
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Please enter a question';
-            }
-            return null;
-          },
+            const SizedBox(height: 16),
+            // You can add image upload functionality here if needed
+          ],
         ),
       ),
       actions: [
