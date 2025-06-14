@@ -80,7 +80,7 @@ class Profile extends StatelessWidget {
                 padding: EdgeInsets.all(1.0),
                 child: Text(
                   textAlign: TextAlign.center,
-                  "steffithomas439@gmail.com",
+                  "email@gmail.com",
                 ),
               ),
             ),

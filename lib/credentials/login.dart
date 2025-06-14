@@ -1,21 +1,67 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:colorful_iconify_flutter/icons/logos.dart';
+import 'package:study_mate/credentials/passReset.dart';
 import 'package:study_mate/credentials/signup.dart';
 import 'package:study_mate/firebaseservices/authService.dart';
+import 'package:study_mate/pages/Mainpage.dart';
 import 'package:study_mate/utilities/color_theme.dart';
 
-class Login extends StatelessWidget {
+class Login extends StatefulWidget {
   const Login({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final TextEditingController emailController = TextEditingController();
-    final TextEditingController passwordController = TextEditingController();
+  State<Login> createState() => _LoginState();
+}
 
+class _LoginState extends State<Login> {
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+  bool isLoading = false;
+
+  void showSnackbar(String message, [Color? color]) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color ?? Colors.red),
+    );
+  }
+
+  Future<void> handleLogin() async {
+    final email = emailController.text.trim();
+    final password = passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      showSnackbar("Please fill all fields");
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      final user = await AuthService.login(email, password);
+
+      if (user != null) {
+        showSnackbar("Login successful!", Colors.green);
+        Future.delayed(const Duration(milliseconds: 500), () {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const Mainpage()),
+          );
+        });
+      } else {
+        showSnackbar("Invalid email or password", Colors.red);
+      }
+    } catch (e) {
+      showSnackbar("Login failed: $e", Colors.red);
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return SafeArea(
       child: Scaffold(
+        backgroundColor: Colors.black,
         body: SingleChildScrollView(
           child: Padding(
             padding: const EdgeInsets.all(20.0),
@@ -26,18 +72,26 @@ class Login extends StatelessWidget {
                 const Center(
                   child: Text(
                     "Welcome Back",
-                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 30),
                 const Center(
-                  child: Text("Sign in", style: TextStyle(fontSize: 20)),
+                  child: Text(
+                    "Sign in",
+                    style: TextStyle(fontSize: 20, color: Colors.white),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 const Center(
                   child: Text(
                     "Enter your credentials to sign in for this app",
                     textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white),
                   ),
                 ),
                 const SizedBox(height: 40),
@@ -52,44 +106,43 @@ class Login extends StatelessWidget {
                 TextField(
                   controller: passwordController,
                   obscureText: true,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'Password',
                     border: OutlineInputBorder(),
                   ),
                 ),
-
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                      onPressed: () {},
-                      child: Text(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ForgotPasswordPage(),
+                          ),
+                        ); // Navigate to forgot password page
+                      },
+                      child: const Text(
                         "Forgot Password",
-                        textAlign: TextAlign.end,
-                        style: TextStyle(fontSize: 13),
+                        style: TextStyle(fontSize: 13, color: AppTheme.accentYellow,fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
                 ),
                 GestureDetector(
-                  onTap: () async {
-                    print("Login button tapped");
-                    Authservice.login(
-                      emailController.text,
-                      passwordController.text,
-                    );
-                  },
+                  onTap: isLoading ? null : handleLogin,
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 15),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: Colors.yellow[700],
+                      color: isLoading ? Colors.grey : Colors.yellow[700],
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Text(
-                      'Login',
-                      style: TextStyle(
+                    child: Text(
+                      isLoading ? 'Logging in, please wait...' : 'Login',
+                      style: const TextStyle(
                         color: Colors.black,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -97,68 +150,23 @@ class Login extends StatelessWidget {
                     ),
                   ),
                 ),
+                
                 const SizedBox(height: 20),
-                const Row(
-                  children: [
-                    Expanded(
-                      child: Divider(
-                        color: Color.fromARGB(255, 255, 255, 255),
-                        thickness: 2,
-                        indent: 20,
-                        endIndent: 10,
-                      ),
-                    ),
-                    Text('OR', style: TextStyle(color: Colors.white)),
-                    Expanded(
-                      child: Divider(
-                        color: Colors.white,
-                        thickness: 2,
-                        indent: 10,
-                        endIndent: 20,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                GestureDetector(
-                  onTap: () {
-                    print("Login button tapped");
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: AppTheme.accentYellow),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Iconify(Logos.google_icon, color: Colors.white),
-                        SizedBox(width: 10),
-                        Text(
-                          'Sign in with Google',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
+
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text("Don't have an account?"),
+                    const Text(
+                      "Don't have an account?",
+                      style: TextStyle(color: Colors.white),
+                    ),
                     TextButton(
                       onPressed: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => Signup()),
+                          MaterialPageRoute(
+                            builder: (context) => const Signup(),
+                          ),
                         );
                       },
                       child: Text(

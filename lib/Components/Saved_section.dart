@@ -34,7 +34,7 @@ class _SavedSectionLoaderState extends State<SavedSectionLoader> {
       if (!await downloadsDir.exists()) {
         await downloadsDir.create(recursive: true);
       }
-
+      print(downloadsDir);
       final files = downloadsDir
           .listSync()
           .whereType<File>()
@@ -89,7 +89,7 @@ class _SavedSectionLoaderState extends State<SavedSectionLoader> {
                             ),
                             onSelected: (value) async {
                               final filepath =
-                                  '${widget.fpath}${fileNames[index]}';
+                                  '${widget.fpath}/${fileNames[index]}';
 
                               if (value == 'share') {
                                 final params = ShareParams(
@@ -126,7 +126,7 @@ class _SavedSectionLoaderState extends State<SavedSectionLoader> {
                                   MaterialPageRoute(
                                     builder: (context) => FocusModePage(
                                       fpath:
-                                          '${widget.fpath}${fileNames[index]}',
+                                          '${widget.fpath}/${fileNames[index]}',
                                     ),
                                   ),
                                 );
@@ -154,7 +154,7 @@ class _SavedSectionLoaderState extends State<SavedSectionLoader> {
                             ),
                             onTap: () async {
                               final filePath =
-                                  '${widget.fpath}${fileNames[index]}';
+                                  '${widget.fpath}/${fileNames[index]}';
                               await openfile(filePath);
                             },
                           ),

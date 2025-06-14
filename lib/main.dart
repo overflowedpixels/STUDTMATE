@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,11 +15,13 @@ void main() async {
     var status = await Permission.storage.status;
     if (!status.isGranted) {
       await Permission.storage.request();
+      print("granted");
     }
 
     var status2 = await Permission.manageExternalStorage.request();
     if (!status2.isGranted) {
       await Permission.manageExternalStorage.request();
+      print("not granted");
     }
   }
 
@@ -34,7 +37,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Flutter Demo',
       theme: AppTheme.darkTheme,
-      home: Login(),
+      home: (FirebaseAuth.instance.currentUser) != null ? Mainpage() : Login(),
     );
   }
 }
